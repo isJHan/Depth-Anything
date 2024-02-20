@@ -1,0 +1,4 @@
+nohup.out
+torchhub/*
+**/__pycache__
+checkpoints/*

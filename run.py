@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 from torchvision.transforms import Compose
 from tqdm import tqdm
+from path import Path
 
 from depth_anything.dpt import DepthAnything
 from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
@@ -31,7 +32,14 @@ if __name__ == '__main__':
     
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     
-    depth_anything = DepthAnything.from_pretrained('LiheYoung/depth_anything_{}14'.format(args.encoder)).to(DEVICE).eval()
+    # depth_anything = DepthAnything.from_pretrained('LiheYoung/depth_anything_{}14'.format(args.encoder)).to(DEVICE).eval()
+    depth_anything = DepthAnything.from_pretrained('./checkpoints/depth_anything_vitl14', local_files_only=True)
+    # my_path = "/root/depth_anything_vitl14.pth"
+    # depth_anything = DepthAnything(config={})
+    # weights = torch.load("/root/depth_anything_vitl14.pth")
+    # print(type(weights))
+    # print(weights.keys())
+    # depth_anything.load_state_dict(state_dict=weights).to(DEVICE).eval()
     
     total_params = sum(param.numel() for param in depth_anything.parameters())
     print('Total parameters: {:.2f}M'.format(total_params / 1e6))
@@ -57,9 +65,11 @@ if __name__ == '__main__':
         else:
             filenames = [args.img_path]
     else:
-        filenames = os.listdir(args.img_path)
-        filenames = [os.path.join(args.img_path, filename) for filename in filenames if not filename.startswith('.')]
-        filenames.sort()
+        # filenames = os.listdir(args.img_path)
+        # filenames = [os.path.join(args.img_path, filename) for filename in filenames if not filename.startswith('.')]
+        # filenames.sort()
+        tmp = sorted(Path(args.img_path).listdir("*.png")) # ! for SimCol3D 数据集
+        filenames = [i for i in tmp if i.split('/')[-1][0]!='.']
     
     os.makedirs(args.outdir, exist_ok=True)
     

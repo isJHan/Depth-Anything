@@ -1,0 +1,1 @@
+python run.py --encoder vitl --img-path /root/autodl-tmp/datasets/SimCol/SyntheticColon_I/Frames_S2/FrameBuffer_0001.png --outdir ./ --grayscale
