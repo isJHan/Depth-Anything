@@ -33,7 +33,7 @@ if __name__ == '__main__':
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     # depth_anything = DepthAnything.from_pretrained('LiheYoung/depth_anything_{}14'.format(args.encoder)).to(DEVICE).eval()
-    depth_anything = DepthAnything.from_pretrained('./checkpoints/depth_anything_vitl14', local_files_only=True)
+    depth_anything = DepthAnything.from_pretrained('/home/jiahan/jiahan/codes/Depth-Anything/checkpoints/depth_anything_vitl14', local_files_only=True)
     # my_path = "/root/depth_anything_vitl14.pth"
     # depth_anything = DepthAnything(config={})
     # weights = torch.load("/root/depth_anything_vitl14.pth")

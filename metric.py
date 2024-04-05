@@ -37,8 +37,9 @@ def Rel_func2(gt,pred):
 
 # 加载模型
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+print("=> device ", DEVICE)
 
-depth_anything = DepthAnything.from_pretrained('./checkpoints/depth_anything_vitl14', local_files_only=True)
+depth_anything = DepthAnything.from_pretrained('./checkpoints/depth_anything_vitl14', local_files_only=True).to(DEVICE)
 
 transform = Compose([
         Resize(
@@ -74,9 +75,29 @@ def infer(filename):
     
     return depth
 
+def infer_inv(filename):
+    raw_image = cv2.imread(filename)
+    image = cv2.cvtColor(raw_image, cv2.COLOR_BGR2RGB) / 255.0
+    
+    h, w = image.shape[:2]
+    
+    image = transform({'image': image})['image']
+    image = torch.from_numpy(image).unsqueeze(0).to(DEVICE)
+    
+    with torch.no_grad():
+        depth = depth_anything(image)
+    
+    
+    depth = F.interpolate(depth[None], (h, w), mode='bilinear', align_corners=False)[0, 0]
+    depth = depth.cpu().numpy()
+    
+    return depth
+
+
 # 加载图片
 
-root_path = Path("/root/autodl-tmp/datasets/SimCol")
+# root_path = Path("/root/autodl-tmp/datasets/SimCol")
+root_path = Path("/home/jiahan/jiahan/datasets/C3VD/.dataset4SCDepth") # ! C3VD
 scenes = []
 
 with open(root_path/'all.txt') as f:
@@ -92,14 +113,17 @@ RMSEs_all, MAEs_all, AbsRels_all = [], [], []
 
 for scene in scenes:
     print("=> processing ", scene)
-    rgbs = sorted(scene.listdir("F*.png"))
+    rgbs = sorted(scene.listdir("*.jpg")) # ! C3VD
     gts = sorted( (scene/'depth_gt').listdir("*.npy") )
+    # rgbs = sorted(scene.listdir("F*.png"))
+    # gts = sorted( (scene/'depth_gt').listdir("*.npy") )
     
     RMSEs, MAEs, AbsRels = [], [], []
     
     for rgb_name,gt_name in tzip(rgbs,gts):
         gt_depth = np.load(gt_name)
-        pred_depth = 1.0 - infer(rgb_name)
+        # pred_depth = 1.0 - infer(rgb_name)
+        pred_depth = 1.0/infer_inv(rgb_name)
 
         scale = np.median(gt_depth)/np.median(pred_depth)
         pred_depth *= scale
@@ -108,7 +132,7 @@ for scene in scenes:
         MAEs.append(MAE_func(gt_depth,pred_depth))
         AbsRels.append(Rel_func2(gt_depth,pred_depth))
     
-    with open("./all.txt", 'a') as f:
+    with open("./C3VD_all_inv2.txt", 'a') as f:
         f.write("\n\n\n\n")
         f.write(scene)
         f.write("\n")
@@ -126,6 +150,10 @@ for scene in scenes:
     AbsRels_all.append(AbsRels)
     
 
-print("=> RMSE is ", sum(RMSEs)/len(RMSEs))
-print("=> MAE is ", sum(MAEs)/len(MAEs))
-print("=> AbsRel is ", sum(AbsRels)/len(AbsRels))
+rmses_sum = [j for i in RMSEs_all for j in i if j<100]
+mae_sum = [j for i in MAEs_all for j in i if j < 100]
+abs_sum = [j for i in AbsRels_all for j in i if j< 100]
+
+print("=> RMSE is ", sum(rmses_sum)/len(rmses_sum))
+print("=> MAE is ", sum(mae_sum)/len(mae_sum))
+print("=> AbsRel is ", sum(abs_sum)/len(abs_sum))

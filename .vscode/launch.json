@@ -16,6 +16,21 @@
                 "--grayscale"
             ],
             "console": "integratedTerminal"
+        },
+        {
+            "name": "train_c3vd.py",
+            "type": "python",
+            "request": "launch",
+            "program": "train.py",
+            "args": [
+                "--model_type", "dpt_beit_large_512",
+                // "--input_path", "/home/jiahan/jiahan/datasets/T1",
+                "--input_path", "/home/jiahan/jiahan/datasets/C3VD/.dataset4SCDepth",
+                "--output_path", "./output/debug",
+                "--save_path", "./log/debug",
+                "--grayscale"
+            ]
         }
+        
     ]
 }
