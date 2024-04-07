@@ -69,12 +69,13 @@ class UCL_Dataset(data.Dataset):
         transform functions must take in a list a images and a numpy array (usually intrinsics matrix)
     """
 
-    def __init__(self, input_path, transform, train):
+    def __init__(self, input_path, transform, train, if_transform=True):
         np.random.seed(1)
         random.seed(1)
         self.is_train = train
         self.root = Path(input_path)
         self.transform = transform
+        self.if_transform = if_transform
         
         self.generateSample()
     
@@ -98,7 +99,7 @@ class UCL_Dataset(data.Dataset):
         image_name, depth_name = self.sample_input[index], self.sample_gt[index]
         
         original_image_rgb = read_image(image_name)  # in [0, 1] [H,W,3]
-        image = self.transform({"image": original_image_rgb})["image"] # jh in [-1, 1]
+        if self.if_transform: image = self.transform({"image": original_image_rgb})["image"] # jh in [-1, 1]
         
         original_depth = read_depth(depth_name)
         # original_depth = read_depth2(depth_name)
@@ -128,12 +129,13 @@ class SimCol3D_Dataset(data.Dataset):
         transform functions must take in a list a images and a numpy array (usually intrinsics matrix)
     """
 
-    def __init__(self, input_path, transform, train):
+    def __init__(self, input_path, transform, train, if_transform=True):
         np.random.seed(1)
         random.seed(1)
         self.is_train = train
         self.root = Path(input_path)
         self.transform = transform
+        self.if_transform = if_transform
         
         self.generateSample()
     
@@ -157,7 +159,7 @@ class SimCol3D_Dataset(data.Dataset):
         image_name, depth_name = self.sample_input[index], self.sample_gt[index]
         
         original_image_rgb = read_image(image_name)  # in [0, 1] [H,W,3]
-        image = self.transform({"image": original_image_rgb})["image"] # jh in [-1, 1]
+        if self.if_transform: image = self.transform({"image": original_image_rgb})["image"] # jh in [-1, 1]
         
         original_depth = read_depth2(depth_name)
         # original_depth = read_depth2(depth_name)
@@ -187,12 +189,13 @@ class C3VD_Dataset(data.Dataset):
         transform functions must take in a list a images and a numpy array (usually intrinsics matrix)
     """
 
-    def __init__(self, input_path, transform, train):
+    def __init__(self, input_path, transform, train, if_transform=True):
         np.random.seed(1)
         random.seed(1)
         self.is_train = train
         self.root = Path(input_path)
         self.transform = transform
+        self.if_transform = if_transform
         
         self.generateSample()
     
@@ -217,7 +220,7 @@ class C3VD_Dataset(data.Dataset):
         
         original_image_rgb = read_image(image_name)  # in [0, 1] [H,W,3]
         original_image_rgb = cv2.resize(original_image_rgb,None, fx=0.5,fy=0.5) # ! 由于OOM 下采样
-        image = self.transform({"image": original_image_rgb})["image"] # jh in [-1, 1]
+        if self.if_transform: image = self.transform({"image": original_image_rgb})["image"] # jh in [-1, 1]
         
         original_depth = read_depth_npy(depth_name)
         # original_depth = read_depth2(depth_name)

@@ -19,7 +19,117 @@ from imutils.video import VideoStream
 from depth_anything.dpt import DepthAnything
 from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
 
-from datasets.UCL import UCL_Dataset, SimCol3D_Dataset, C3VD_Dataset
+# from datasets.UCL import UCL_Dataset, SimCol3D_Dataset, C3VD_Dataset
+import torch.utils.data as data
+
+
+
+import random
+
+def read_image(path):
+    """Read image and output RGB image (0-1).
+
+    Args:
+        path (str): path to file
+
+    Returns:
+        array: RGB image (0-1)
+    """
+    img = cv2.imread(path)
+
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) / 255.0
+
+    return img
+
+class C3VD_Dataset(data.Dataset):
+    """A sequence data loader where the files are arranged in this way:
+        root/scene_1/0000000.jpg
+        root/scene_1/0000001.jpg
+        ..
+        root/scene_1/cam.txt
+        root/scene_2/0000000.jpg
+        .
+        transform functions must take in a list a images and a numpy array (usually intrinsics matrix)
+    """
+
+    def __init__(self, input_path, transform, train, n_selected=4, selected_size=256, if_transform=True):
+        np.random.seed(1)
+        random.seed(1)
+        self.is_train = train
+        self.root = Path(input_path)
+        self.transform = transform
+        self.if_transform = if_transform
+        self.n_selected = n_selected
+        self.selected_size = selected_size
+        self.h, self.w = 0, 0
+        
+        self.generateSample()
+    
+    
+    def generate_random_points(self, w, h, N):
+        points = []
+        for _ in range(N):
+            x = random.randint(0, w - 1)
+            y = random.randint(0, h-1)
+            points.append((x, y))
+        return points
+
+    def select_parts(self, N, size, input, h,w):
+        start_points = self.generate_random_points(w-size ,h-size, N)
+        croped_imgs = []
+        for i in range(N):
+            x_start,y_start = start_points[i][0], start_points[i][1]
+            croped = input[y_start:y_start+size,x_start:x_start+size]
+            # croped = transform({"image": croped})["image"] # jh in [-1, 1]
+            croped_imgs.append(croped)
+        return croped_imgs, start_points
+
+    
+    def generateSample(self):
+        self.sample_input, self.sample_gt = [], []
+
+        scenes = []
+        filename = self.root/'train4Midas.txt' if self.is_train else self.root/'val4Midas.txt'
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+        scenes = [self.root/line[:-1] for line in lines]
+        
+        for scene in scenes:
+            rgb_files, depth_files = sorted(scene.listdir("*.jpg")), sorted((scene/'depth_gt').listdir("*.npy"))
+            self.sample_input += rgb_files
+            self.sample_gt += depth_files
+        
+        
+
+    def __getitem__(self, index):
+        image_name = self.sample_input[index]
+        
+        original_image_rgb = read_image(image_name)  # in [0, 1] [H,W,3]
+        # original_image_rgb = cv2.resize(original_image_rgb,None, fx=0.5,fy=0.5) # ! 由于OOM 下采样
+        h,w,_ = original_image_rgb.shape
+        
+        parts, start_points = self.select_parts(self.n_selected, self.selected_size, original_image_rgb, h, w)
+        
+        if self.if_transform: image = self.transform({"image": original_image_rgb})["image"] # jh in [-1, 1]
+        image = torch.from_numpy(image)
+        if self.if_transform:
+            for i in range(len(parts)):
+                parts[i] = self.transform({"image": parts[i]})["image"] # jh in [-1, 1]
+                parts[i] = torch.from_numpy(parts[i])
+        
+        
+        if self.is_train:
+            return image, parts,start_points, original_image_rgb
+        else:
+            return image, parts, start_points, original_image_rgb
+
+    def __len__(self):
+        return len(self.sample_input)
+
+
 
 def save_model(model, save_path, epoch, is_best=False):
     save_path.makedirs_p()
@@ -53,66 +163,6 @@ def compute_loss(disp_pred, disp_gt):
     loss = torch.norm(disp_norm.view((B,-1))-disp_gt.view((B,-1)))
     return loss, disp_norm
 
-def compute_loss2(disp_pred, depth_gt):
-    """depth = 1-norm(output)
-
-    Args:
-        disp_pred (_type_): _description_
-        depth_gt (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    B,H,W = disp_pred.shape
-    
-    max_value,min_value = torch.max(disp_pred.view((B,-1)), axis=1,keepdim=True)[0], torch.min(disp_pred.view((B,-1)),axis=1,keepdim=True)[0]
-    disp_norm = (disp_pred.view((B,-1))-min_value)/(max_value-min_value)
-    
-    disp_norm = torch.nn.functional.interpolate(disp_norm.unsqueeze(1).view(B,1,H,W),depth_gt.shape[1:]).squeeze(1) # 插值改变图片大小
-    loss = torch.norm( (1-disp_norm.view((B,-1))) - depth_gt.view((B,-1)) ) # 将预测值转换为 depth 的方法
-    
-    return loss, 1-disp_norm
-
-def compute_loss3(disp_pred, depth_gt):
-    """depth = 1-sigmoid((output-5000)/10000)
-
-    Args:
-        disp_pred (_type_): _description_
-        depth_gt (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    B,H,W = disp_pred.shape
-    
-    disp_pred = (disp_pred-5000)/10000.0 # NOTE 经验的系数
-    disp_norm = torch.sigmoid(disp_pred) # 输出归一化
-    
-    disp_norm = torch.nn.functional.interpolate(disp_norm.unsqueeze(1).view(B,1,H,W),depth_gt.shape[1:]).squeeze(1) # 插值改变图片大小
-    loss = torch.norm( (1-disp_norm.view((B,-1))) - depth_gt.view((B,-1)) ) # 将预测值转换为 depth 的方法
-    
-    return loss, 1-disp_norm
-
-def compute_loss4(disp_pred, disp_gt):
-    """depth = log(1+norm(1/output))
-
-    Args:
-        disp_pred (_type_): _description_
-        disp_gt (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    B,H,W = disp_pred.shape
-    disp_pred_ = 1/disp_pred
-    max_value,min_value = torch.max(disp_pred_.view((B,-1)), axis=1,keepdim=True)[0], torch.min(disp_pred_.view((B,-1)),axis=1,keepdim=True)[0]
-    disp_norm = torch.log2(1+(disp_pred_.view((B,-1))-min_value)/(max_value-min_value))
-
-    disp_norm = torch.nn.functional.interpolate(disp_norm.unsqueeze(1).view(B,1,H,W),disp_gt.shape[1:]).squeeze(1) # 插值改变图片大小
-    loss = torch.norm(disp_norm.view((B,-1))-disp_gt.view((B,-1)))
-    return loss, disp_norm
-
-
 best_error = -1
 n_iter = 0
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -120,22 +170,48 @@ torch.autograd.set_detect_anomaly(True)
 
 my_writers = {}
 
-def train(train_loader, model, optimizer, epoch, training_writer):
+def min_max_norm(value):
+    return (value-value.min())/(value.max()-value.min())
+
+def compute_self_loss(start_points, parts_pred, disp_pred, size):
+    parts_gt = []
+    loss = 0.0
+    B,h,w = disp_pred.shape
+    for i in range(len(start_points)):
+        p = start_points[i]
+        for j in range(B):
+            x,y = p[0][j], p[1][j]
+            loss += abs(min_max_norm(disp_pred[j][y:y+size,x:x+size]) - min_max_norm(parts_pred[i][j])).mean()
+    return loss
+
+def train(args, train_loader, model, optimizer, epoch, training_writer):
+    N_selected, selected_size = args.self_number, args.self_size # 数量和大小
+    
     loss_sum = 0
     n = 0
     print("=> training")
-    for i,(input,disp_gt) in enumerate(tqdm(train_loader)):
-        input, disp_gt = input.to('cuda'), disp_gt.to('cuda')
-        _,h,w = disp_gt.shape
+    for i,(input,parts,start_points, ori_img) in enumerate(tqdm(train_loader)):
+        input = input.to('cuda')
+        for i in range(len(parts)): parts[i] = parts[i].to('cuda')
+        _, h,w,_ = ori_img.shape
         
         disp_pred = model.forward(input)
         disp_pred = F.interpolate(disp_pred[None], (h, w), mode='bilinear', align_corners=False)[0]
-        loss,_ = compute_loss(disp_pred,disp_gt) # depth = norm(1/pred)
+        
+        parts_pred = []
+        for p in parts: 
+            pred = model.forward(p)
+            pred = F.interpolate(pred[None], (selected_size, selected_size), mode='bilinear', align_corners=False)[0]
+            parts_pred.append(pred)
+        
+        
+        loss = compute_self_loss(start_points, parts_pred, disp_pred, selected_size)
+        # loss,_ = compute_loss(disp_pred,disp_gt) # depth = norm(1/pred)
         # loss,_ = compute_loss2(disp_pred,disp_gt) # depth = 1-pred 计算深度
         # loss,_ = compute_loss3(disp_pred,disp_gt) # depth = 1-sigmoid(pred) 计算深度
 
         training_writer.add_scalar(
-            'L2_loss', loss.item(), n
+            'self-L1_loss', loss.item(), n
         )
         
         # compute gradient and do Adam step
@@ -206,6 +282,9 @@ def main(input_path, output_path, model_path, model_type="dpt_beit_large_512", o
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     depth_anything = DepthAnything.from_pretrained('./checkpoints/depth_anything_vitl14', local_files_only=True).to(DEVICE)
+    tmp = torch.load("log/UCL/03-30-13:04/checkpoints/0.pth.tar") # 22.2 C3VD
+    depth_anything.load_state_dict(tmp)
+    
     model = depth_anything
 
     model.train()
@@ -228,14 +307,14 @@ def main(input_path, output_path, model_path, model_type="dpt_beit_large_512", o
     
     # model, transform, net_w, net_h = load_model(device, model_path, model_type, optimize, height, square)
     # ! UCL
-    train_set = UCL_Dataset(input_path, transform=transform, train=True)
-    val_set = UCL_Dataset(input_path, transform=transform, train=False)
+    # train_set = UCL_Dataset(input_path, transform=transform, train=True)
+    # val_set = UCL_Dataset(input_path, transform=transform, train=False)
     # ! SimCol3D
     # train_set = SimCol3D_Dataset(input_path, transform=transform, train=True)
     # val_set = SimCol3D_Dataset(input_path, transform=transform, train=False)
     # ! C3VD
-    # train_set = C3VD_Dataset(input_path, transform=transform, train=True)
-    # val_set = C3VD_Dataset(input_path, transform=transform, train=False)
+    train_set = C3VD_Dataset(input_path, transform=transform, train=True)
+    val_set = C3VD_Dataset(input_path, transform=transform, train=False)
     
     train_loader = torch.utils.data.DataLoader(
         train_set, batch_size=args.batch_size, shuffle=True,
@@ -255,7 +334,7 @@ def main(input_path, output_path, model_path, model_type="dpt_beit_large_512", o
     best_loss = 1e5
     for epoch in range(args.epochs):
         print("------------------ {} epoch -------------------".format(epoch))
-        train_loss = train(train_loader, model, optimizer, epoch, training_writer)
+        train_loss = train(args, train_loader, model, optimizer, epoch, training_writer)
 
         val_loss = validate(val_loader, model, optimizer, epoch, output_writers)
         
@@ -330,9 +409,9 @@ if __name__ == '__main__':
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--lr", default=1e-5)
     parser.add_argument("--save_path", default="./log")
-    
-    parser.add_argument("--self-number", default=4, help="Number of selected area on one image when training in self-surpervised menner.")
-    parser.add_argument("--self-size", default=256, help="Size of cliped images when training in self-supervised manner.")
+
+    parser.add_argument("--self_number", default=4, help="Number of selected area on one image when training in self-surpervised menner.")
+    parser.add_argument("--self_size", default=256, help="Size of cliped images when training in self-supervised manner.")
     
     
     args = parser.parse_args()
