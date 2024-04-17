@@ -106,9 +106,11 @@ class C3VD_Dataset(data.Dataset):
 
     def __getitem__(self, index):
         image_name = self.sample_input[index]
+        depth_gt = np.load(self.sample_gt[index])
         
+        depth_gt = cv2.resize(depth_gt, None, fx=0.5, fy=0.5)
         original_image_rgb = read_image(image_name)  # in [0, 1] [H,W,3]
-        # original_image_rgb = cv2.resize(original_image_rgb,None, fx=0.5,fy=0.5) # ! 由于OOM 下采样
+        original_image_rgb = cv2.resize(original_image_rgb,None, fx=0.5,fy=0.5) # ! 由于OOM 下采样
         h,w,_ = original_image_rgb.shape
         
         parts, start_points = self.select_parts(self.n_selected, self.selected_size, original_image_rgb, h, w)
@@ -124,7 +126,7 @@ class C3VD_Dataset(data.Dataset):
         if self.is_train:
             return image, parts,start_points, original_image_rgb
         else:
-            return image, parts, start_points, original_image_rgb
+            return image, original_image_rgb, depth_gt
 
     def __len__(self):
         return len(self.sample_input)
@@ -172,7 +174,6 @@ my_writers = {}
 
 def min_max_norm(value):
     return (value-value.min())/(value.max()-value.min())
-
 def compute_self_loss(start_points, parts_pred, disp_pred, size):
     parts_gt = []
     loss = 0.0
@@ -195,14 +196,16 @@ def train(args, train_loader, model, optimizer, epoch, training_writer):
         for i in range(len(parts)): parts[i] = parts[i].to('cuda')
         _, h,w,_ = ori_img.shape
         
+        # with torch.no_grad(): 
         disp_pred = model.forward(input)
         disp_pred = F.interpolate(disp_pred[None], (h, w), mode='bilinear', align_corners=False)[0]
         
         parts_pred = []
-        for p in parts: 
-            pred = model.forward(p)
-            pred = F.interpolate(pred[None], (selected_size, selected_size), mode='bilinear', align_corners=False)[0]
-            parts_pred.append(pred)
+        with torch.no_grad():
+            for p in parts: # TODO 在这里禁止梯度的回传
+                pred = model.forward(p)
+                pred = F.interpolate(pred[None], (selected_size, selected_size), mode='bilinear', align_corners=False)[0]
+                parts_pred.append(pred)
         
         
         loss = compute_self_loss(start_points, parts_pred, disp_pred, selected_size)
@@ -229,13 +232,17 @@ def validate(val_loader, model, optimizer, epoch, output_writers):
     loss_sum = 0
     n = 0
     print("=> validating")
-    for i,(input,disp_gt, ori_input) in enumerate(tqdm(val_loader)):
-        input, disp_gt = input.to('cuda'), disp_gt.to('cuda')
-        _,h,w = disp_gt.shape
+    for i,(input, ori_img, depth_gt) in enumerate(tqdm(val_loader)):
+        # input, disp_gt = input.to('cuda'), disp_gt.to('cuda')
+        depth_gt = depth_gt.to('cuda')
+        input = input.to('cuda')
+        # print(ori_img.shape)
+        _, h,w,_ = ori_img.shape
         
         disp_pred = model.forward(input)
         disp_pred = F.interpolate(disp_pred[None], (h, w), mode='bilinear', align_corners=False)[0]
-        loss,disp_norm = compute_loss(disp_pred,disp_gt)
+        # loss = compute_self_loss(start_points, parts_pred, disp_pred, selected_size)
+        loss,disp_norm = compute_loss(disp_pred,depth_gt)
         # loss,disp_norm = compute_loss2(disp_pred,disp_gt) # depth = 1-pred 计算深度
         # loss,disp_norm = compute_loss3(disp_pred,disp_gt) # depth = 1-sigmoid(pred) 计算深度
         # loss,disp_norm = compute_loss4(disp_pred,disp_gt) # depth = log(1+norm(1/output)) 计算深度
@@ -246,10 +253,10 @@ def validate(val_loader, model, optimizer, epoch, output_writers):
         
         if i < len(output_writers)-1:
             if epoch == 0:
-                output_writers[i].add_image('val Input', ori_input[0].detach().cpu().numpy(), 0)
-                output_writers[i].add_image(
-                    'val GT', disp_gt[0].unsqueeze(0).detach().cpu().numpy(), 0
-                )
+                output_writers[i].add_image('val Input', ori_img[0].detach().cpu().numpy().transpose((2,0,1)), 0)
+                # output_writers[i].add_image(
+                    # 'val GT', disp_gt[0].unsqueeze(0).detach().cpu().numpy(), 0
+                # )
             output_writers[i].add_image(
                 'val Pred', disp_norm[0].unsqueeze(0).detach().cpu().numpy(), epoch
             )
@@ -282,7 +289,7 @@ def main(input_path, output_path, model_path, model_type="dpt_beit_large_512", o
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     depth_anything = DepthAnything.from_pretrained('./checkpoints/depth_anything_vitl14', local_files_only=True).to(DEVICE)
-    tmp = torch.load("log/UCL/03-30-13:04/checkpoints/0.pth.tar") # 22.2 C3VD
+    tmp = torch.load("/home/jiahan/jiahan/codes/Depth-Anything/log/C3VD/03-20-19:43/checkpoints/0.pth.tar") # 22.2 C3VD
     depth_anything.load_state_dict(tmp)
     
     model = depth_anything
@@ -313,8 +320,8 @@ def main(input_path, output_path, model_path, model_type="dpt_beit_large_512", o
     # train_set = SimCol3D_Dataset(input_path, transform=transform, train=True)
     # val_set = SimCol3D_Dataset(input_path, transform=transform, train=False)
     # ! C3VD
-    train_set = C3VD_Dataset(input_path, transform=transform, train=True)
-    val_set = C3VD_Dataset(input_path, transform=transform, train=False)
+    train_set = C3VD_Dataset(input_path, transform=transform, train=True, selected_size=args.self_size, n_selected=args.self_number)
+    val_set = C3VD_Dataset(input_path, transform=transform, train=False, selected_size=args.self_size, n_selected=args.self_number)
     
     train_loader = torch.utils.data.DataLoader(
         train_set, batch_size=args.batch_size, shuffle=True,
@@ -334,6 +341,8 @@ def main(input_path, output_path, model_path, model_type="dpt_beit_large_512", o
     best_loss = 1e5
     for epoch in range(args.epochs):
         print("------------------ {} epoch -------------------".format(epoch))
+        # val_loss = validate(val_loader, model, optimizer, epoch, output_writers)
+
         train_loss = train(args, train_loader, model, optimizer, epoch, training_writer)
 
         val_loss = validate(val_loader, model, optimizer, epoch, output_writers)
@@ -407,11 +416,11 @@ if __name__ == '__main__':
     parser.add_argument("--batch_size", default=1)
     parser.add_argument("--workers", default=4)
     parser.add_argument("--epochs", type=int, default=200)
-    parser.add_argument("--lr", default=1e-5)
+    parser.add_argument("--lr", default=1e-6)
     parser.add_argument("--save_path", default="./log")
 
-    parser.add_argument("--self_number", default=4, help="Number of selected area on one image when training in self-surpervised menner.")
-    parser.add_argument("--self_size", default=256, help="Size of cliped images when training in self-supervised manner.")
+    parser.add_argument("--self_number", default=2, help="Number of selected area on one image when training in self-surpervised menner.")
+    parser.add_argument("--self_size", default=128, help="Size of cliped images when training in self-supervised manner.")
     
     
     args = parser.parse_args()

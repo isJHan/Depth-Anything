@@ -43,7 +43,9 @@ transform = Compose([
 # tmp = torch.load("/home/jiahan/jiahan/codes/Depth-Anything/log/C3VD/03-20-19:43/checkpoints/0.pth.tar")
 # tmp = torch.load("log/C3VD/03-24-22:07/checkpoints/0.pth.tar")
 # tmp = torch.load("/home/jiahan/jiahan/codes/Depth-Anything/log/C3VD/03-25-23:11/checkpoints/0.pth.tar") # 88.8
-tmp = torch.load("/home/jiahan/jiahan/codes/Depth-Anything/log/C3VD/03-27-00:54/checkpoints/0.pth.tar") # 166.6
+# tmp = torch.load("/home/jiahan/jiahan/codes/Depth-Anything/log/C3VD/03-27-00:54/checkpoints/0.pth.tar") # 166.6
+
+tmp = torch.load("/home/jiahan/jiahan/codes/Depth-Anything/log/C3VD/03-27-00:54/checkpoints/0.pth.tar") # UCL
 
 depth_anything.load_state_dict(tmp)
 

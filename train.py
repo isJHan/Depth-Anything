@@ -228,14 +228,14 @@ def main(input_path, output_path, model_path, model_type="dpt_beit_large_512", o
     
     # model, transform, net_w, net_h = load_model(device, model_path, model_type, optimize, height, square)
     # ! UCL
-    # train_set = UCL_Dataset(input_path, transform=transform, train=True)
-    # val_set = UCL_Dataset(input_path, transform=transform, train=False)
+    train_set = UCL_Dataset(input_path, transform=transform, train=True)
+    val_set = UCL_Dataset(input_path, transform=transform, train=False)
     # ! SimCol3D
     # train_set = SimCol3D_Dataset(input_path, transform=transform, train=True)
     # val_set = SimCol3D_Dataset(input_path, transform=transform, train=False)
     # ! C3VD
-    train_set = C3VD_Dataset(input_path, transform=transform, train=True)
-    val_set = C3VD_Dataset(input_path, transform=transform, train=False)
+    # train_set = C3VD_Dataset(input_path, transform=transform, train=True)
+    # val_set = C3VD_Dataset(input_path, transform=transform, train=False)
     
     train_loader = torch.utils.data.DataLoader(
         train_set, batch_size=args.batch_size, shuffle=True,
@@ -259,9 +259,9 @@ def main(input_path, output_path, model_path, model_type="dpt_beit_large_512", o
 
         val_loss = validate(val_loader, model, optimizer, epoch, output_writers)
         
-        if val_loss < best_loss:
-            best_loss = val_loss
-            save_model(model, args.save_path/'checkpoints', epoch=epoch, is_best=True)
+        # if val_loss < best_loss:
+        #     best_loss = val_loss
+        #     save_model(model, args.save_path/'checkpoints', epoch=epoch, is_best=True)
         if epoch % 1 == 0:
             save_model(model, args.save_path/'checkpoints', epoch=epoch, is_best=False)
             

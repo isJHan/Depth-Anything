@@ -4,4 +4,4 @@ python train.py \
 --output_path ./output \
 --save_path ./log/UCL \
 --grayscale \
---epochs 5
+--epochs 10
