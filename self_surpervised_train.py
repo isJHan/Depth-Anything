@@ -174,6 +174,35 @@ my_writers = {}
 
 def min_max_norm(value):
     return (value-value.min())/(value.max()-value.min())
+
+def l1_error(gt, pred):
+    '''suppose gt and pred are normlized.'''
+    return abs(gt-pred).mean()
+
+def pearson_error(gt, pred):
+    '''
+    nagitive pearson loss
+    Suppose gt and pred are NOT normalized.
+    '''
+    B = 1
+    tmp_gt, tmp_pred = gt.reshape((B,-1)), pred.reshape((B,-1))
+    mean_gt, mean_pred = torch.mean(tmp_gt, dim=-1), torch.mean(tmp_pred, dim=-1)
+    tmp_gt_centered, tmp_pred_centered = tmp_gt-mean_gt, tmp_pred-mean_pred
+    cov = torch.sum(tmp_gt_centered*tmp_pred_centered,dim=-1)
+    var_gt = torch.sum(tmp_gt_centered**2,dim=-1)
+    var_pred = torch.sum(tmp_pred_centered**2,dim=-1)
+    
+    return ((1 - cov/torch.sqrt(var_gt*var_pred)) /2).mean()
+
+def RPNL_error(gt, pred):
+    B = 1
+    tmp_gt, tmp_pred = gt.reshape((B,-1)), pred.reshape((B,-1))
+    median_gt, median_pred = torch.median(tmp_gt,dim=-1), torch.median(tmp_pred,dim=-1)
+    scale_gt, scale_pred = abs(tmp_gt-median_gt).mean(), abs(tmp_pred-median_pred).mean()
+    
+    return abs( scale_gt*(tmp_gt-median_gt) - scale_pred*(tmp_pred-median_pred) ).mean()
+
+
 def compute_self_loss(start_points, parts_pred, disp_pred, size):
     parts_gt = []
     loss = 0.0
@@ -182,7 +211,8 @@ def compute_self_loss(start_points, parts_pred, disp_pred, size):
         p = start_points[i]
         for j in range(B):
             x,y = p[0][j], p[1][j]
-            loss += abs(min_max_norm(disp_pred[j][y:y+size,x:x+size]) - min_max_norm(parts_pred[i][j])).mean()
+            # loss += l1_error(min_max_norm(disp_pred[j][y:y+size,x:x+size]), min_max_norm(parts_pred[i][j])) # l1 error
+            loss += pearson_error(disp_pred[j][y:y+size,x:x+size], parts_pred[i][j]) # pearson error
     return loss
 
 def train(args, train_loader, model, optimizer, epoch, training_writer):

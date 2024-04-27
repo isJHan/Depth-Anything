@@ -19,7 +19,8 @@ from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
 
 import matplotlib.pyplot as plt
 
-save_root_path = Path("/home/jiahan/jiahan/datasets/C3VD/DepthAnything_Depth_for_SCDepth/inv_166-6_1") # 1/(output+88.8来转换)
+save_root_path = Path("/home/jiahan/jiahan/datasets/C3VD/DepthAnything_Depth_for_SCDepth/inv_22-6_5") # ! UCL 1/(output+22.2)转换, 第5轮的权重
+# save_root_path = Path("/home/jiahan/jiahan/datasets/C3VD/DepthAnything_Depth_for_SCDepth/inv_166-6_1") # 1/(output+88.8来转换)
 save_root_path.makedirs_p()
 
 
@@ -45,7 +46,7 @@ transform = Compose([
 # tmp = torch.load("/home/jiahan/jiahan/codes/Depth-Anything/log/C3VD/03-25-23:11/checkpoints/0.pth.tar") # 88.8
 # tmp = torch.load("/home/jiahan/jiahan/codes/Depth-Anything/log/C3VD/03-27-00:54/checkpoints/0.pth.tar") # 166.6
 
-tmp = torch.load("/home/jiahan/jiahan/codes/Depth-Anything/log/C3VD/03-27-00:54/checkpoints/0.pth.tar") # UCL
+tmp = torch.load("log/UCL/04-11-00:00/checkpoints/4.pth.tar") # UCL
 
 depth_anything.load_state_dict(tmp)
 
@@ -107,6 +108,7 @@ for scene in scenes:
             # pred = 1.0/infer(rr)
             output = infer(rr)
             write_pfm(save_path/name+'.pfm', output)
+            cv2.imwrite(save_path/name+'.png', (65535*(output-output.min())/(output.max()-output.min())).astype(np.uint16))
             # np.save(save_path/name+'.npy', output)
             
             
