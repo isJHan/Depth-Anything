@@ -4,4 +4,5 @@ python semi_surpervised_train.py \
 --output_path ./output \
 --save_path ./log/C3VD_semi \
 --grayscale \
---epochs 5
+--epochs 5 \
+--lr "1e-5"
