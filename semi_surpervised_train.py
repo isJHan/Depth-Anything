@@ -209,6 +209,7 @@ def RPNL_error(gt, pred):
     
     return abs( scale_gt*(tmp_gt-median_gt) - scale_pred*(tmp_pred-median_pred) ).mean()
 
+# TODO - SSIM
 
 def compute_self_loss(start_points, parts_pred, disp_pred, size):
     parts_gt = []
