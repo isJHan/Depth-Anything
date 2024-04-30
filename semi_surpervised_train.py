@@ -470,7 +470,7 @@ if __name__ == '__main__':
     parser.add_argument("--batch_size", default=1)
     parser.add_argument("--workers", default=4)
     parser.add_argument("--epochs", type=int, default=200)
-    parser.add_argument("--lr", default=1e-6)
+    parser.add_argument("--lr", type=float, default=1e-6)
     parser.add_argument("--save_path", default="./log")
 
     parser.add_argument("--self_number", default=2, help="Number of selected area on one image when training in self-surpervised menner.")
