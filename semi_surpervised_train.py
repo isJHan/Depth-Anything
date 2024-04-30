@@ -148,7 +148,7 @@ def save_model(model, save_path, epoch, is_best=False):
         save_path/'{}.pth.tar'.format(filename)
     )
 
-def compute_loss(disp_pred, disp_gt):
+def _discard_compute_loss(disp_pred, disp_gt):
     """depth = norm(1/output)
 
     Args:
@@ -169,6 +169,35 @@ def compute_loss(disp_pred, disp_gt):
 
     disp_norm = torch.nn.functional.interpolate(disp_norm.unsqueeze(1).view(B,1,H,W),disp_gt.shape[1:]).squeeze(1) # 插值改变图片大小
     loss = torch.norm(disp_norm.view((B,-1))-disp_gt.view((B,-1)))
+    return loss, disp_norm
+
+def compute_loss(disp_pred, disp_gt):
+    """depth = norm(1/output)
+
+    Args:
+        disp_pred (_type_): _description_
+        disp_gt (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    B,H,W = disp_pred.shape
+    disp_pred_ = 1/(disp_pred+22.2) # ! 加上一个数防止 div0
+    # disp_pred_ = 1/(disp_pred+44.4) # ! 加上一个数防止 div0
+    # disp_pred_ = 1/(disp_pred+88.8) # ! 加上一个数防止 div0
+    # disp_pred_ = 1/(disp_pred+166.6) # ! 加上一个数防止 div0
+    # disp_pred_ = 1/(disp_pred+333.3) # ! 加上一个数防止 div0
+
+    
+    max_value,min_value = torch.max(disp_pred_.view((B,-1)), axis=1,keepdim=True)[0], torch.min(disp_pred_.view((B,-1)),axis=1,keepdim=True)[0]
+    disp_norm = (disp_pred_.view((B,-1))-min_value)/(max_value-min_value)
+
+    disp_norm = torch.nn.functional.interpolate(disp_norm.unsqueeze(1).view(B,1,H,W),disp_gt.shape[1:]).squeeze(1) # 插值改变图片大小
+    loss = torch.norm(disp_norm.view((B,-1))-disp_gt.view((B,-1)))
+
+    pred, gt = disp_pred[0].detach().cpu().numpy(), disp_gt[0].detach().cpu().numpy()
+    pred = pred * np.median(gt)/np.median(pred)
+    loss = abs(pred-gt).mean()
     return loss, disp_norm
 
 
@@ -211,6 +240,33 @@ def RPNL_error(gt, pred):
 
 # TODO - SSIM
 
+# TODO - 傅立叶变换，中低频监督，高频过滤
+def __generate_mask(h,w, radius):
+    mask = np.ones((h,w))
+    center_h = h // 2
+    center_w = w // 2
+
+    # 生成半径为radius内的掩码为0
+    for i in range(h):
+        for j in range(w):
+            if (i - center_h)**2 + (j - center_w)**2 <= radius**2:
+                mask[i, j] = 0
+                
+    return mask
+def __display_fft_value(fft_value):
+    magnitude_spectrum = torch.log(torch.abs(fft_value) + 1)  # 加1避免log(0)
+    phase_spectrum = torch.angle(fft_value)
+    return phase_spectrum, magnitude_spectrum
+
+def compute_fourier_error(gt, pred):
+    B,h,w = gt.shape
+    filter_mask = None
+    fft_gt, fft_pred = torch.fft.fft2(gt), torch.fft.fft2(pred)
+    filter_mask = torch.from_numpy(__generate_mask(h,w, 20)[None,]).to(device)
+    fft_gt, fft_pred = fft_gt * filter_mask, fft_pred * filter_mask
+    error = torch.linalg.norm(fft_gt-fft_pred)/(h*w) # L2 error
+    return error
+
 def compute_self_loss(start_points, parts_pred, disp_pred, size):
     parts_gt = []
     loss = 0.0
@@ -219,14 +275,15 @@ def compute_self_loss(start_points, parts_pred, disp_pred, size):
         p = start_points[i]
         for j in range(B):
             x,y = p[0][j], p[1][j]
-            # loss += l1_error(min_max_norm(disp_pred[j][y:y+size,x:x+size]), min_max_norm(parts_pred[i][j])) # l1 error
-            loss += pearson_error(disp_pred[j][y:y+size,x:x+size], parts_pred[i][j]) # pearson error
+            loss += l1_error(min_max_norm(disp_pred[j][y:y+size,x:x+size]), min_max_norm(parts_pred[i][j])) # l1 error
+            # loss += pearson_error(disp_pred[j][y:y+size,x:x+size], parts_pred[i][j]) # pearson error
     return loss
 
 def compute_semi_loss(disp_pred,disp_base):
     # TODO
     # loss = pearson_error(disp_base, disp_pred)
-    loss = l1_error(disp_base, disp_pred)
+    # loss = l1_error(disp_base, disp_pred)
+    loss = compute_fourier_error(disp_base, disp_pred) # Fourier error
     
     return loss
 
@@ -256,7 +313,7 @@ def train(args, train_loader, model, optimizer, epoch, training_writer):
         
         loss_self = compute_self_loss(start_points, parts_pred, disp_pred, selected_size)
         loss_semi = compute_semi_loss(disp_pred, disp_base)
-        loss = loss_self + 0.1*loss_semi
+        loss = 5.0*loss_self + 0.1*loss_semi
         # loss,_ = compute_loss(disp_pred,disp_gt) # depth = norm(1/pred)
         # loss,_ = compute_loss2(disp_pred,disp_gt) # depth = 1-pred 计算深度
         # loss,_ = compute_loss3(disp_pred,disp_gt) # depth = 1-sigmoid(pred) 计算深度
