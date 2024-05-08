@@ -66,7 +66,7 @@ class C3VD_Dataset(data.Dataset):
         self.n_selected = n_selected
         self.selected_size = selected_size
         self.h, self.w = 0, 0
-        self.scale_factor = 0.5
+        self.scale_factor = 1.0
         
         self.generateSample()
     
@@ -260,11 +260,12 @@ def __display_fft_value(fft_value):
     return phase_spectrum, magnitude_spectrum
 
 def compute_fourier_error(gt, pred):
+    radius = 40
     B,h,w = gt.shape
     filter_mask = None
     fft_gt, fft_pred = torch.fft.fft2(gt), torch.fft.fft2(pred)
     fft_gt, fft_pred = torch.fft.fftshift(fft_gt), torch.fft.fftshift(fft_pred)
-    filter_mask = torch.from_numpy(__generate_mask(h,w, 20)[None,]).to(device)
+    filter_mask = torch.from_numpy(__generate_mask(h,w, radius)[None,]).to(device)
     fft_gt, fft_pred = fft_gt * filter_mask, fft_pred * filter_mask
     error = torch.linalg.norm(fft_gt-fft_pred)/(h*w) # L2 error
     return error
