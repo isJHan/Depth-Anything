@@ -242,15 +242,16 @@ def RPNL_error(gt, pred):
 
 # TODO - 傅立叶变换，中低频监督，高频过滤
 def __generate_mask(h,w, radius):
-    mask = np.ones((h,w))
+    mask = np.zeros((h,w))
     center_h = h // 2
     center_w = w // 2
 
     # 生成半径为radius内的掩码为0
+    # 低频部分监督
     for i in range(h):
         for j in range(w):
             if (i - center_h)**2 + (j - center_w)**2 <= radius**2:
-                mask[i, j] = 0
+                mask[i, j] = 1.0
                 
     return mask
 def __display_fft_value(fft_value):
@@ -262,6 +263,7 @@ def compute_fourier_error(gt, pred):
     B,h,w = gt.shape
     filter_mask = None
     fft_gt, fft_pred = torch.fft.fft2(gt), torch.fft.fft2(pred)
+    fft_gt, fft_pred = torch.fft.fftshift(fft_gt), torch.fft.fftshift(fft_pred)
     filter_mask = torch.from_numpy(__generate_mask(h,w, 20)[None,]).to(device)
     fft_gt, fft_pred = fft_gt * filter_mask, fft_pred * filter_mask
     error = torch.linalg.norm(fft_gt-fft_pred)/(h*w) # L2 error
